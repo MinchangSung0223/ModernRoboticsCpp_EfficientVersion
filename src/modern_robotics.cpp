@@ -899,5 +899,297 @@ namespace mr {
 		}
 		T = M*TransInv(T_);
 	}
+	Matrix3d skew3(const Vector3d& xi) {
+		Matrix3d skew;
+		skew <<  0, -xi(2),  xi(1),
+				xi(2),     0, -xi(0),
+			-xi(1),  xi(0),     0;
+		return skew;
+	}
+	Matrix3d dexp3(const Vector3d& xi) {
+		const double eps = std::numeric_limits<double>::epsilon();
+		if (xi.norm() < eps) {
+			return Matrix3d::Identity();
+		}
+		
+		Matrix3d ceil_xi = skew3(xi);
+		double norm_xi = xi.norm();
+		double s = sin(norm_xi / 2) / (norm_xi / 2);
+		double c = cos(norm_xi / 2);
+		double alpha = s * c;
+		double beta = s * s;
+		
+		Matrix3d dexp =Matrix3d::Identity() + beta / 2 * ceil_xi + (1 - alpha) / (norm_xi * norm_xi) * ceil_xi * ceil_xi;
+		return dexp;
+	}
+	Matrix3d dlog3(const Vector3d& xi) {
+		const double eps = std::numeric_limits<double>::epsilon();
+		
+		if (xi.norm() < eps) {
+			return Matrix3d::Identity();
+		}
+		
+		double norm_xi = xi.norm();
+		Matrix3d ceil_xi = skew3(xi);
+		double s = sin(norm_xi / 2) / (norm_xi / 2);
+		double c = cos(norm_xi / 2);
+		double alpha = s * c;
+		double beta = s * s;
+		double gamma = alpha / beta;
+		
+		Matrix3d dlog = Matrix3d::Identity() - 0.5 * skew3(xi) + (1 - gamma) / (norm_xi * norm_xi) * ceil_xi * ceil_xi;
+		
+		return dlog;
+	}
+	Matrix6d dexp6(const Vector6d& lambda) {
+		const double eps = std::numeric_limits<double>::epsilon();
+
+		Vector3d eta = lambda.segment(0, 3);
+		Matrix3d ceil_eta = skew3(eta);
+
+		Vector3d xi = lambda.segment(3, 3);
+		double norm_xi = xi.norm();
+		Matrix3d ceil_xi = skew3(xi);
+		double s = sin(norm_xi / 2) / (norm_xi / 2);
+		double c = cos(norm_xi / 2);
+		double alpha = s * c;
+		double beta = s * s;
+
+		Matrix3d Cxi;
+		if (xi.norm() < eps) {
+			Cxi = 0.5 * skew3(eta);
+		} else {
+			Cxi = beta/2 * skew3(eta) +
+				(1-alpha)/(norm_xi*norm_xi) * (skew3(eta)*skew3(xi) + skew3(xi)*skew3(eta)) +
+				(alpha-beta)/(norm_xi*norm_xi) * xi.transpose()*eta*skew3(xi) -
+				1/(norm_xi*norm_xi) * (3*(1-alpha)/(norm_xi*norm_xi) - beta/2) * xi.transpose()*eta*skew3(xi)*skew3(xi);
+		}
+
+		Matrix3d dexp_xi = dexp3(xi);
+		Matrix6d dexp=Matrix6d::Zero();
+		dexp << dexp_xi, Cxi,
+				Matrix3d::Zero(), dexp_xi;
+
+		return dexp;
+	}
+	Matrix3d ddexp3(const Vector3d& xi, const Vector3d& dxi) {
+		const double eps = std::numeric_limits<double>::epsilon();
+
+		if (xi.norm() < eps) {
+			return 0.5 * skew3(dxi);
+		}
+
+		Matrix3d ceil_xi = skew3(xi);
+		double norm_xi = xi.norm();
+		double s = sin(norm_xi / 2.0) / (norm_xi / 2.0);
+		double c = cos(norm_xi / 2.0);
+		double alpha = s * c;
+		double beta = s * s;
+		Vector3d eta = dxi;
+		double norm_xi2 = norm_xi*norm_xi;
+		Matrix3d Cxi = beta/2.0* skew3(eta) +
+					   (1.0-alpha)/norm_xi2 * skew_sum(eta,xi) +
+						(alpha-beta)/norm_xi2 * xi.dot(eta)  * skew3(xi) -
+						1.0/norm_xi2 * (3.0*(1.0-alpha)/norm_xi2 - beta/2.0) * xi.dot(eta)* ceil_xi * ceil_xi;
+		return Cxi;
+	}	
+	Matrix3d dddexp3(const Vector3d& xi, const Vector3d& dxi, const Vector3d& y, const Vector3d& dy) {
+	const double eps = std::numeric_limits<double>::epsilon();
+
+	if (xi.norm() < eps) {
+		return 0.5 * skew3(dy) + (1.0/6.0) * (skew3(dxi)*skew3(y) + skew3(y)*skew3(dxi));
+	}
+	Matrix3d dCxi;
+	Matrix3d ceil_xi = skew3(xi);
+	double norm_xi = xi.norm();
+	double norm_xi2 = norm_xi * norm_xi;
+	Matrix3d ceil_dxi = skew3(dxi);
+	double s = sin(norm_xi / 2) / (norm_xi / 2);
+	double c = cos(norm_xi / 2);
+	double alpha = s * c;
+	double beta = s * s;
+	Matrix3d ceil_dy = skew3(dy);
+	Matrix3d ceil_y = skew3(y);
+	Matrix3d ceil_dy_xi = (ceil_dy*ceil_xi + ceil_xi*ceil_dy);
+	Matrix3d ceil_y_dxi = (ceil_y*ceil_dxi + ceil_dxi*ceil_y);
+	Matrix3d ceil_xi_y = (ceil_xi*ceil_y + ceil_y*ceil_xi);
+	Matrix3d ceil_xi_dxi = (ceil_xi*ceil_dxi + ceil_dxi*ceil_xi);
+	Matrix3d ceil_xi2 = ceil_xi*ceil_xi;
+
+	double zeta = xi.dot( y) * xi.dot(dxi)  / norm_xi2;
+	double Gamma1 = (1 - alpha) / norm_xi2;
+	double Gamma2 = (alpha - beta) / norm_xi2;
+	double Gamma3 = (beta / 2.0 - 3.0 * Gamma1) / norm_xi2;
+	double Gamma4 = -Gamma2 / beta;
+	double Gamma5 = (Gamma1 + 2.0 * Gamma2) / (norm_xi2 * beta);
+	double delta0 = dxi.dot(y) + xi.dot(dy) ;
+	 Matrix3d delta1 = xi.dot( y)  * ceil_dxi + xi.dot(dxi)  * ceil_y + (delta0 - 4 * zeta) * ceil_xi;
+	 Matrix3d delta2 = xi.dot( y)  * ceil_xi_dxi + xi.dot(dxi) * ceil_xi_y + (delta0 - 5 * zeta) * ceil_xi2;
+	 Matrix3d delta3 = xi.dot( y)  * ceil_xi_dxi + xi.dot(dxi) * ceil_xi_y + (delta0 - 3 * zeta) * ceil_xi2;
+	 dCxi = beta/2.0 * (ceil_dy - zeta * ceil_xi) + Gamma1 * (ceil_dy_xi + ceil_y_dxi + zeta * ceil_xi) +
+	 						Gamma2 * (delta1 + zeta * ceil_xi2) + Gamma3 * delta2;
+
+	return dCxi;
+	}
+	Matrix6d ddexp6(const Vector6d& lambda, const Vector6d& lambda_dot) {
+		const double eps = std::numeric_limits<double>::epsilon();
+
+		Vector3d eta = lambda.segment(0, 3);
+		Vector3d xi = lambda.segment(3, 3);
+		Vector3d eta_dot = lambda_dot.segment(0, 3);
+		Vector3d xi_dot = lambda_dot.segment(3, 3);
+
+		Matrix3d C = ddexp3(xi, xi_dot);
+		Matrix3d C_dot = dddexp3(xi, xi_dot, eta, eta_dot);
+
+		Matrix6d ddexp;
+		ddexp << C, C_dot,
+				Matrix3d::Zero(), C;
+
+		return ddexp;
+	}	
+	Matrix3d skew_sum(const Vector3d& a, const Vector3d& b) {
+		return skew3(a) * skew3(b) + skew3(b) * skew3(a);
+	}
+
+Matrix3d ddlog3(const Vector3d& xi, const Vector3d& dxi) {
+		const double eps = std::numeric_limits<double>::epsilon();
+
+		if (xi.norm() < eps) {
+			return -0.5 * skew3(dxi);
+		}
+
+		double norm_xi = xi.norm();
+		double norm_xi2 = norm_xi * norm_xi;
+		Matrix3d ceil_xi = skew3(xi);
+		double s = sin(norm_xi / 2) / (norm_xi / 2);
+		double c = cos(norm_xi / 2);
+		double alpha = s * c;
+		double beta = s * s;
+		double gamma = alpha / beta;
+
+		Matrix3d D = -0.5 * skew3(dxi) + (1 - gamma) / norm_xi2 * skew_sum(dxi, xi) +
+							1 / norm_xi2 * (1 / beta + gamma - 2) / norm_xi2 * xi.transpose() * dxi * skew3(xi) * skew3(xi);
+
+		return D;
+	}	
+Matrix3d dddlog3(const Vector3d& xi, const Vector3d& dxi, const Vector3d& y, const Vector3d& dy) {
+    const double eps = std::numeric_limits<double>::epsilon();
+
+    if (xi.norm() < eps) {
+        return -0.5 * skew3(dy) + (1.0/12.0) * (skew3(dxi)*skew3(y) + skew3(y)*skew3(dxi));
+    }
+
+    Matrix3d ceil_xi = skew3(xi);
+    double norm_xi = xi.norm();
+    double norm_xi2 = norm_xi * norm_xi;
+    Matrix3d ceil_dxi = skew3(dxi);
+    double s = sin(norm_xi / 2) / (norm_xi / 2);
+    double c = cos(norm_xi / 2);
+    double alpha = s * c;
+    double beta = s * s;
+    Matrix3d ceil_dy = skew3(dy);
+    Matrix3d ceil_y = skew3(y);
+    Matrix3d ceil_dy_xi = (ceil_dy*ceil_xi + ceil_xi*ceil_dy);
+    Matrix3d ceil_y_dxi = (ceil_y*ceil_dxi + ceil_dxi*ceil_y);
+    Matrix3d ceil_xi_y = (ceil_xi*ceil_y + ceil_y*ceil_xi);
+    Matrix3d ceil_xi_dxi = (ceil_xi*ceil_dxi + ceil_dxi*ceil_xi);
+    Matrix3d ceil_xi2 = ceil_xi*ceil_xi;
+
+    double zeta = xi.dot(y) * xi.dot(dxi) / norm_xi2;
+    double gamma = alpha / beta;
+    double Gamma1 = (1 - alpha) / norm_xi2;
+    double Gamma2 = (alpha - beta) / norm_xi2;
+    double Gamma3 = (beta / 2 - 3 * Gamma1) / norm_xi2;
+    double Gamma4 = -Gamma2 / beta;
+    double Gamma5 = (Gamma1 + 2 * Gamma2) / (norm_xi2 * beta);
+    double delta0 = dxi.dot(y) + xi.dot(dy);
+    Matrix3d delta1 = xi.dot(y) * ceil_dxi + xi.dot(dxi) * ceil_y + (delta0 - 4 * zeta) * ceil_xi;
+    Matrix3d delta2 = xi.dot(y) * ceil_xi_dxi + xi.dot(dxi) * ceil_xi_y + (delta0 - 5 * zeta) * ceil_xi2;
+    Matrix3d delta3 = xi.dot(y) * ceil_xi_dxi + xi.dot(dxi) * ceil_xi_y + (delta0 - 3 * zeta) * ceil_xi2;
+    Matrix3d dDxi = -0.5 * skew3(dy) + 2 / norm_xi2 * (1 - gamma / beta) / norm_xi2 * zeta * ceil_xi2 +
+                           Gamma4 * (ceil_dy_xi + ceil_y_dxi) + Gamma5 * delta3;
+
+    return dDxi;
+}
+Matrix6d dlog6(const Vector6d& lambda) {
+    const double eps = std::numeric_limits<double>::epsilon();
+
+    Vector3d eta = lambda.segment(0, 3);
+    Vector3d xi = lambda.segment(3, 3);
+
+    double norm_xi = xi.norm();
+    Matrix3d ceil_xi = skew3(xi);
+    double s = sin(norm_xi / 2) / (norm_xi / 2);
+    double c = cos(norm_xi / 2);
+    double alpha = s * c;
+    double beta = s * s;
+    double gamma = alpha / beta;
+
+    Matrix3d dlog_3 = dlog3(xi);
+    Matrix3d O = Matrix3d::Zero();
+    double norm_xixi = norm_xi * norm_xi;
+    Matrix3d D = -0.5 * skew3(eta) + (1 - gamma) / norm_xixi * (skew3(eta) * skew3(xi) + skew3(xi) * skew3(eta)) +
+                        1 / norm_xixi * (1 / beta + gamma - 2) / norm_xixi * xi.transpose() * eta * skew3(xi) * skew3(xi);
+
+    if (norm_xi < eps) {
+        D = -0.5 * skew3(eta);
+    }
+
+    Matrix6d dlog(6, 6);
+    dlog << dlog_3, D,
+            O, dlog_3;
+
+    return dlog;
+}
+Matrix6d ddlog6(const Vector6d& lambda, const Vector6d& lambda_dot) {
+    Vector3d xi = lambda.segment(3, 3);
+    Vector3d xi_dot = lambda_dot.segment(3, 3);
+    Vector3d eta = lambda.segment(0, 3);
+    Vector3d eta_dot = lambda_dot.segment(0, 3);
+
+    Matrix3d D = ddlog3(xi, xi_dot);
+    Matrix3d D_dot = dddlog3(xi, xi_dot, eta, eta_dot);
+
+    Matrix6d ddlog(6, 6);
+    ddlog << D, D_dot,
+             Matrix3d::Zero(), D;
+
+    return ddlog;
+}
+Vector6d flip(Vector6d V){
+	Vector6d V_flip;
+	V_flip<<V(3),V(4),V(5),V(0),V(1),V(2);
+	return V_flip;
+}
+void LieScrewTrajectory(const SE3 X0,const SE3 XT,const Vector6d V0,const Vector6d VT,const Vector6d dV0,const Vector6d dVT,double Tf,int N,vector<SE3>&Xd_list,vector<Vector6d>&Vd_list,vector<Vector6d>&dVd_list){
+	Vector6d lambda_0,lambda_T,dlambda_0,dlambda_T,ddlambda_0,ddlambda_T,lambda_t,dlambda_t,ddlambda_t;
+	lambda_0 = Vector6d::Zero();
+	lambda_T = flip(se3ToVec(MatrixLog6(TransInv(X0)*XT)));
+	dlambda_0 = V0;
+	dlambda_T = dlog6(-lambda_T)*VT;
+	ddlambda_0 = dV0;
+	ddlambda_T = dlog6(-lambda_T)*dVT +ddlog6(-lambda_T,-dlambda_T)*VT;
+	double timegap = Tf /(N/1.0 - 1.0);
+	for (int i = 0;i<N;i++){
+		lambda_t=dlambda_t=ddlambda_t= Vector6d::Zero();
+		double t= timegap*(i-1);
+		for(int j = 0;j<6;j++){
+			Vector3d ret = QuinticTimeScalingKinematics(lambda_0(j),lambda_T(j),dlambda_0(j),dlambda_T(j),ddlambda_0(j),ddlambda_T(j),Tf,t) ;
+			lambda_t(j) = ret(0);
+			dlambda_t(j) = ret(1);
+			ddlambda_t(j) = ret(2);
+		}
+		Vector6d V = dexp6(-lambda_t)*dlambda_t;
+		Vector6d dV = dexp6(-lambda_t)*ddlambda_t+ddexp6(-lambda_t,-dlambda_t)*dlambda_t;
+		SE3 T = X0*MatrixExp6(VecTose3(flip(lambda_t)));
+		Xd_list.at(i) = T;
+		Vd_list.at(i) = flip(V);
+		dVd_list.at(i) = flip(dV);
+	}
+	
+	
+}
+
 }
 
