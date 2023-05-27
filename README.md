@@ -1,5 +1,6 @@
-# Modern Robotics:  Mechanics, Planning, and Control
+# Modern Robotics:  Mechanics, Planning, and Control 
 # C++ Library
+# More Efficient Version
 
 This repository contains the code library accompanying [_Modern Robotics:
 Mechanics, Planning, and Control_](http://modernrobotics.org) (Kevin Lynch
